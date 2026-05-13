@@ -61,36 +61,72 @@ GUIDELINES:
     let active = true;
     while (active) {
       const spinner = ora('Thinking...').start();
-      
+
       try {
-        const response = await this.client.chat.completions.create({
+        const stream = await this.client.chat.completions.create({
             model: this.model,
             messages: this.messages,
             tools: getToolDefinitions() as any,
-            tool_choice: "auto"
+            tool_choice: "auto",
+            stream: true
         });
 
-        spinner.stop();
-        
-        const message = response.choices[0].message;
-        this.messages.push(message);
+        let content = '';
+        let toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] = [];
+        let contentStarted = false;
 
-        if (message.content) {
-          console.log(chalk.blue("AutoClaw: ") + message.content);
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta;
+
+          if (delta?.content) {
+            if (!contentStarted) {
+              spinner.stop();
+              process.stdout.write(chalk.blue("AutoClaw: "));
+              contentStarted = true;
+            }
+            process.stdout.write(delta.content);
+            content += delta.content;
+          }
+
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index;
+              if (!toolCalls[idx]) {
+                toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+              }
+              if (tc.id) toolCalls[idx].id = tc.id;
+              if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+            }
+          }
         }
 
-        if (message.tool_calls) {
-          for (const toolCall of message.tool_calls) {
+        if (contentStarted) {
+          console.log(); // newline after streamed content
+        } else {
+          spinner.stop();
+        }
+
+        // Build the full message for history
+        const message: any = { role: "assistant" };
+        if (content) message.content = content;
+        if (toolCalls.length > 0) {
+          message.tool_calls = toolCalls;
+          message.content = message.content || null;
+        }
+        this.messages.push(message);
+
+        if (toolCalls.length > 0) {
+          for (const toolCall of toolCalls) {
             if (toolCall.type !== 'function') continue;
-            
+
             const functionName = toolCall.function.name;
             const functionArgs = JSON.parse(toolCall.function.arguments);
-            
+
             console.log(chalk.gray(`Executing tool: ${functionName}...`));
-            
-            // Pass the full config to the tool handler
+
             const toolResult = await executeToolHandler(functionName, functionArgs, this.config);
-            
+
             this.messages.push({
               role: "tool",
               tool_call_id: toolCall.id,
