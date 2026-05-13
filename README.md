@@ -189,3 +189,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 GitHub: [https://github.com/tsingliuwin/autoclaw](https://github.com/tsingliuwin/autoclaw)
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=tsingliuwin%2Fautoclaw&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=tsingliuwin/autoclaw&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=tsingliuwin/autoclaw&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=tsingliuwin/autoclaw&type=date&legend=top-left" />
+ </picture>
+</a>
