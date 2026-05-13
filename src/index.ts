@@ -161,33 +161,45 @@ async function runSetup(options: any = {}) {
     {
       type: 'confirm',
       name: 'configureImage',
-      message: 'Do you want to configure a separate Image Generation Service (DALL-E)?',
-      default: !!currentConfig.imageApiKey
+      message: currentConfig.imageApiKey
+        ? `Do you want to reconfigure Image Generation (DALL-E)? (current: ${maskSecret(currentConfig.imageApiKey)})`
+        : 'Do you want to configure a separate Image Generation Service (DALL-E)?',
+      default: false
     },
     {
       type: 'confirm',
       name: 'configureEmail',
-      message: 'Do you want to configure the Email Tool (SMTP)?',
-      default: !!currentConfig.smtpHost
+      message: currentConfig.smtpHost
+        ? `Do you want to reconfigure Email (SMTP)? (current: ${currentConfig.smtpUser}@${currentConfig.smtpHost})`
+        : 'Do you want to configure the Email Tool (SMTP)?',
+      default: false
     },
     {
       type: 'confirm',
       name: 'configureSearch',
-      message: 'Do you want to configure Web Search (Tavily)?',
-      default: !!currentConfig.tavilyApiKey
+      message: currentConfig.tavilyApiKey
+        ? `Do you want to reconfigure Web Search (Tavily)? (current: ${maskSecret(currentConfig.tavilyApiKey)})`
+        : 'Do you want to configure Web Search (Tavily)?',
+      default: false
     },
     {
       type: 'confirm',
       name: 'configureNotify',
-      message: 'Do you want to configure Group Bots (Feishu/DingTalk/WeCom)?',
-      default: !!(currentConfig.feishuWebhook || currentConfig.dingtalkWebhook || currentConfig.wecomWebhook)
+      message: (currentConfig.feishuWebhook || currentConfig.dingtalkWebhook || currentConfig.wecomWebhook)
+        ? 'Do you want to reconfigure Group Bots (Feishu/DingTalk/WeCom)?'
+        : 'Do you want to configure Group Bots (Feishu/DingTalk/WeCom)?',
+      default: false
     }
   ]);
 
   // Resolve sensitive values (Keep old if empty)
   const finalApiKey = answers.apiKey || currentConfig.apiKey;
 
-  let imageConfig: any = {};
+  let imageConfig: any = {
+    imageApiKey: currentConfig.imageApiKey,
+    imageBaseUrl: currentConfig.imageBaseUrl,
+    imageModel: currentConfig.imageModel
+  };
   if (answers.configureImage) {
     const imageAnswers = await inquirer.prompt([
       {
@@ -218,7 +230,13 @@ async function runSetup(options: any = {}) {
     };
   }
 
-  let emailConfig: any = {};
+  let emailConfig: any = {
+    smtpHost: currentConfig.smtpHost,
+    smtpPort: currentConfig.smtpPort,
+    smtpUser: currentConfig.smtpUser,
+    smtpPass: currentConfig.smtpPass,
+    smtpFrom: currentConfig.smtpFrom
+  };
   if (answers.configureEmail) {
      const emailAnswers = await inquirer.prompt([
       {
@@ -259,7 +277,9 @@ async function runSetup(options: any = {}) {
     if (!emailConfig.smtpFrom && emailConfig.smtpUser) { emailConfig.smtpFrom = emailConfig.smtpUser; }
   }
 
-  let searchConfig: any = {};
+  let searchConfig: any = {
+    tavilyApiKey: currentConfig.tavilyApiKey
+  };
   if (answers.configureSearch) {
     const searchAnswers = await inquirer.prompt([
       {
@@ -274,7 +294,14 @@ async function runSetup(options: any = {}) {
     searchConfig = { tavilyApiKey: searchAnswers.tavilyApiKey || currentConfig.tavilyApiKey };
   }
 
-  let notifyConfig: any = {};
+  let notifyConfig: any = {
+    feishuWebhook: currentConfig.feishuWebhook,
+    feishuKeyword: currentConfig.feishuKeyword,
+    dingtalkWebhook: currentConfig.dingtalkWebhook,
+    dingtalkKeyword: currentConfig.dingtalkKeyword,
+    wecomWebhook: currentConfig.wecomWebhook,
+    wecomKeyword: currentConfig.wecomKeyword
+  };
   if (answers.configureNotify) {
     const notifyAnswers = await inquirer.prompt([
       {
