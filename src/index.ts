@@ -26,6 +26,7 @@ process.on('SIGTERM', handleExit);
 const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.autoclaw');
 const GLOBAL_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, 'setting.json');
 const LOCAL_CONFIG_FILE = path.join(process.cwd(), '.autoclaw', 'setting.json');
+const GLOBAL_ENV_FILE = path.join(GLOBAL_CONFIG_DIR, '.env');
 
 interface AppConfig {
   apiKey?: string;
@@ -64,8 +65,9 @@ function loadJsonConfig(filePath: string): AppConfig {
   return {};
 }
 
-// Load local env vars (lowest priority of env vars, but env vars override JSON)
-dotenv.config();
+// Load env vars only from AutoClaw's own config directory to avoid
+// unrelated project/home .env files overriding API settings.
+dotenv.config({ path: GLOBAL_ENV_FILE });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // In dist/index.js, package.json is usually up one level in the root
