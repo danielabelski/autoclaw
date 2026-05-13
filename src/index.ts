@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'node:readline/promises';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 
 // Handle Ctrl+C gracefully
 function handleExit() {
@@ -457,6 +458,31 @@ async function runChat(queryParts: string[], options: any) {
         break;
       }
 
+      if (userInput.toLowerCase() === '/view') {
+        if (agent.lastOutputFile && fs.existsSync(agent.lastOutputFile)) {
+          rl.pause();
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const isWin = process.platform === 'win32';
+              const cmd = isWin ? 'more' : (process.env.PAGER || 'less');
+              const args = isWin ? [agent.lastOutputFile!] : ['-R', agent.lastOutputFile!];
+              const child = spawn(cmd, args, { stdio: 'inherit' });
+              child.on('close', () => resolve());
+              child.on('error', (err) => {
+                console.error(chalk.red(`Failed to open pager: ${err.message}`));
+                console.log(chalk.dim(`You can manually view: ${agent.lastOutputFile}`));
+                resolve();
+              });
+            });
+          } finally {
+            rl.resume();
+          }
+        } else {
+          console.log(chalk.yellow("No tool output to view."));
+        }
+        continue;
+      }
+
       if (userInput.trim() === '') continue;
 
       rl.pause();
@@ -467,7 +493,7 @@ async function runChat(queryParts: string[], options: any) {
       }
     }
   } catch (err: any) {
-    if (err.message && (err.message.includes('User force closed') || err.message.includes('Prompt was canceled'))) {
+    if (isUserAbort(err)) {
        console.log(chalk.cyan("\nGoodbye!"));
     } else {
        console.error(chalk.red("Error in chat loop:"), err);
@@ -477,9 +503,14 @@ async function runChat(queryParts: string[], options: any) {
   }
 }
 
+function isUserAbort(err: any): boolean {
+  return err.code === 'ABORT_ERR'
+    || (err.message && (err.message.includes('User force closed') || err.message.includes('Prompt was canceled')));
+}
+
 // Global error handler
 main().catch(err => {
-  if (err.message && (err.message.includes('User force closed') || err.message.includes('Prompt was canceled'))) {
+  if (isUserAbort(err)) {
     console.log(chalk.cyan("\nGoodbye!"));
     process.exit(0);
   }

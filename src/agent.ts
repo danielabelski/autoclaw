@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import chalk from 'chalk';
 import ora from 'ora';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { getToolDefinitions, executeToolHandler } from './tools/index.js';
@@ -10,6 +11,7 @@ export class Agent {
   private messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   private model: string;
   private config: any;
+  public lastOutputFile: string | null = null;
 
   constructor(apiKey: string, baseURL: string | undefined, model: string = 'gpt-4-turbo-preview', config: any = {}) {
     this.client = new OpenAI({
@@ -73,15 +75,31 @@ GUIDELINES:
         });
 
         let content = '';
+        let reasoningContent = '';
         let toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[] = [];
         let contentStarted = false;
+        let reasoningStarted = false;
+        const toolNamesSeen = new Set<number>();
 
         for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta;
+          const delta = chunk.choices[0]?.delta as any;
 
+          // Handle reasoning/thinking content (e.g., DeepSeek)
+          if (delta?.reasoning_content) {
+            if (!reasoningStarted) {
+              spinner.stop();
+              process.stdout.write(chalk.dim('\n[Thinking] '));
+              reasoningStarted = true;
+            }
+            process.stdout.write(chalk.dim(delta.reasoning_content));
+            reasoningContent += delta.reasoning_content;
+          }
+
+          // Handle regular content
           if (delta?.content) {
             if (!contentStarted) {
               spinner.stop();
+              if (reasoningStarted) process.stdout.write('\n');
               process.stdout.write(chalk.blue("AutoClaw: "));
               contentStarted = true;
             }
@@ -89,6 +107,7 @@ GUIDELINES:
             content += delta.content;
           }
 
+          // Handle tool calls - show name as soon as available
           if (delta?.tool_calls) {
             for (const tc of delta.tool_calls) {
               const idx = tc.index;
@@ -98,19 +117,33 @@ GUIDELINES:
               if (tc.id) toolCalls[idx].id = tc.id;
               if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
               if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+
+              // Show tool name as soon as it's complete
+              if (tc.function?.name && !toolNamesSeen.has(idx)) {
+                toolNamesSeen.add(idx);
+                spinner.stop();
+                if (contentStarted) process.stdout.write('\n');
+                if (reasoningStarted && !contentStarted) process.stdout.write('\n');
+                process.stdout.write(chalk.cyan(`[Calling] ${tc.function.name}\n`));
+              }
             }
           }
         }
 
+        if (reasoningStarted) {
+          console.log(); // newline after reasoning
+        }
         if (contentStarted) {
           console.log(); // newline after streamed content
-        } else {
+        }
+        if (!reasoningStarted && !contentStarted) {
           spinner.stop();
         }
 
         // Build the full message for history
         const message: any = { role: "assistant" };
         if (content) message.content = content;
+        if (reasoningContent) message.reasoning_content = reasoningContent;
         if (toolCalls.length > 0) {
           message.tool_calls = toolCalls;
           message.content = message.content || null;
@@ -124,9 +157,53 @@ GUIDELINES:
             const functionName = toolCall.function.name;
             const functionArgs = JSON.parse(toolCall.function.arguments);
 
-            console.log(chalk.gray(`Executing tool: ${functionName}...`));
+            // Display tool call info
+            console.log(chalk.cyan(`\n[Tool] ${functionName}`));
+            const argsStr = JSON.stringify(functionArgs, null, 2);
+            const argsLines = argsStr.split('\n');
+            if (argsLines.length > 8) {
+              console.log(chalk.dim(argsLines.slice(0, 8).join('\n')));
+              console.log(chalk.dim(`  ... (${argsLines.length - 8} more lines)`));
+            } else {
+              console.log(chalk.dim(argsStr));
+            }
 
-            const toolResult = await executeToolHandler(functionName, functionArgs, this.config);
+            const execSpinner = ora('Executing...').start();
+            let toolResult: string;
+            try {
+              toolResult = await executeToolHandler(functionName, functionArgs, this.config);
+              execSpinner.stop();
+            } catch (err: any) {
+              execSpinner.fail('Tool execution failed');
+              toolResult = `Error: ${err.message}`;
+            }
+
+            // Display result with folding for long output
+            const MAX_PREVIEW_LINES = 20;
+            const resultLines = toolResult.split('\n');
+
+            console.log(chalk.green(`[Result]`));
+
+            if (resultLines.length > MAX_PREVIEW_LINES) {
+              // Show preview
+              console.log(resultLines.slice(0, MAX_PREVIEW_LINES).join('\n'));
+              const remaining = resultLines.length - MAX_PREVIEW_LINES;
+              console.log(chalk.dim(`\n  ... ${remaining} more lines (${resultLines.length} lines total)`));
+
+              // Save full output to file
+              const outputDir = path.join(os.homedir(), '.autoclaw', 'output');
+              if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+              }
+              const ts = new Date().toISOString().replace(/[:.]/g, '-');
+              const outputFile = path.join(outputDir, `${functionName}_${ts}.txt`);
+              fs.writeFileSync(outputFile, toolResult, 'utf-8');
+              this.lastOutputFile = outputFile;
+              console.log(chalk.dim(`  Type '/view' to see full output`));
+            } else {
+              console.log(toolResult);
+              this.lastOutputFile = null;
+            }
 
             this.messages.push({
               role: "tool",
